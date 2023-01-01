@@ -1,7 +1,8 @@
 **/logs
 **/tmp
-**/cache
 *.log
+.remote_cache
+.tmp
 .vscode
 .DS_Store
 .DS_Store?
@@ -11,3 +12,4 @@ ehthumbs.db
 Thumbs.db
 .env
 todos
+Gemfile.lock
