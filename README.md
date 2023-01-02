@@ -1,6 +1,6 @@
 # smart-book
 
-## require-remote 
+## require_remote 
 
 `require_remote` can require github repo library without manually download the code.
 
@@ -16,4 +16,4 @@ For Example:
 
 ```require_remote '@adam429/smart-book/examples/require_remote/lib/math_lib'```
 
-The code will require file from https://raw.githubusercontent.com/adam429/smart-book/main/examples/require_remote/lib/math_lib.rb
+The code will require file from https://github.com/adam429/smart-book/blob/main/examples/require_remote/lib/math_lib.rb
