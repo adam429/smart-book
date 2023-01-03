@@ -1,5 +1,8 @@
 require 'webrick'
 require 'erb'
+require 'opal'
+require 'opal-browser'
+require 'method_source'
 
 module SmartBook
 
@@ -18,7 +21,7 @@ module SmartBook
                 @head = []
                 @js = []
                 @opal = []
-                @opal_require = ["opal"]
+                @opal_require = ["opal","promise","native","browser"]
             end
 
             class VarBinding
@@ -48,27 +51,31 @@ module SmartBook
                 @opal.push(opal)
             end
 
-            def opal_require(req)
-                @opal_require.push(req)
+            def opal_load_code(symbol)
+                begin
+                    opal(MethodSource::source_helper(Object.const_source_location(symbol)))
+                rescue 
+                end
+                begin
+                    opal(method(symbol).source)
+                rescue 
+                end
+            end
+
+            def opal_require(opal_req)
+                @opal_require.push(opal_req)
             end
 
             def output
                 @opal_compile = []
 
-                # # puts "@@req=#{@@req}"
-                # if @@req == nil then
-                #     @opal_require.map do |req|                    
-                #         require req
-                #     end
-                #     @@req = true
-                # end
-
-                @opal_compile = @opal_compile + @opal_require.map do |req|
-                    require req
-                    Opal::Builder.new.build_str("require '#{req}'","")                
-                end
-                @opal_compile = @opal_compile + @opal.map do |opal|
-                    Opal::Builder.new.build_str(opal,"")                
+                if @opal.size > 0 then
+                    @opal_compile = @opal_compile + @opal_require.map do |opal_req|
+                        Opal::Builder.new.build_str("require '#{opal_req}'","")                
+                    end
+                    @opal_compile = @opal_compile + @opal.map do |opal|
+                        Opal::Builder.new.build_str(opal,"")                
+                    end
                 end
 
                 <<~HTML

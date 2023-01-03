@@ -1,7 +1,6 @@
 require 'smartbook'
 
 src = <<~HTML
-    <h1>Hello World</h1>
     <p>Current time: <span id="time">#{Time.now}</span></p>
     <p> <a id="button" href="#"> click me </a></p>
     <p> counter: <span id="counter">0</span></p>
@@ -12,7 +11,14 @@ opal1 = <<~OPAL
 OPAL
 
 opal2 = <<~OPAL
-    puts "welcome"
+    i = 0
+
+    $document.at_css("#time")["style"] = $document.at_css("#time")["style"].to_s + ";color:red"
+
+    $document.at_css("#button").on(:click) do
+        i = i+1
+        $document.at_css("#counter").inner_html = i
+    end
 OPAL
 
 render = SmartBook::Render::Render.new

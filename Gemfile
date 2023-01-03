@@ -7,11 +7,7 @@ gem 'unparser'
 gem 'thread'
 gem 'jscall'
 
+gem 'method_source'
+
 gem 'opal'
-
-
-
 gem 'opal-browser'
-gem 'opal-jquery'
-gem 'jquery'
-gem 'nokogiri'
