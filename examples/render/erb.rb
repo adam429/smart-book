@@ -2,7 +2,9 @@ require 'render'
 
 src = <<~HTML
    <h1>Hello World</h1>
-   <p>Current time: #{Time.now}</p>
+   <% 10.times do |x| %>
+    <li><%= x %></li>
+ <% end %>
 HTML
 
 render = Render::Render.new
