@@ -1,4 +1,4 @@
-require 'render'
+require 'smartbook'
 
 src = <<~HTML
     <h1>Hello World</h1>
@@ -6,7 +6,7 @@ src = <<~HTML
     <p> counter: <span id="counter">0</span></p>
 HTML
 
-render = Render::Render.new
+render = SmartBook::Render::Render.new
 
 render.head(<<~JSCODE
     <script src="https://cdnjs.cloudflare.com/ajax/libs/jquery/3.6.3/jquery.min.js" integrity="sha512-STof4xm1wgkfm7heWqFJVn58Hm3EtS31XFaagaa8VMReCXAkQnJZ+jEy8PCC/iT18dFy95WcExNHFTqLyp72eQ==" crossorigin="anonymous" referrerpolicy="no-referrer"></script>

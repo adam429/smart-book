@@ -1,4 +1,5 @@
 require 'webrick'
+require 'erb'
 
 module SmartBook
 
@@ -8,18 +9,31 @@ module SmartBook
             @@server = nil 
             @@first_render = nil
             @@last_render = nil
+            # @@req = nil
 
-            attr_accessor :body, :head, :js, :opal, :file
+            attr_accessor :body, :head, :js, :opal, :opal_require, :file
 
             def initialize
                 @body = []
                 @head = []
                 @js = []
                 @opal = []
+                @opal_require = ["opal"]
             end
 
-            def body(html)
-                @body.push(html)
+            class VarBinding
+                def initialize(vars)
+                    vars.each do |k,v|
+                        instance_variable_set("@#{k}", v)
+                    end
+                end
+                def get_binding
+                  binding
+                end
+            end
+
+            def body(html,vars={})                
+                @body.push(ERB.new(html).result(VarBinding.new(vars).get_binding))
             end
 
             def head(html)
@@ -34,7 +48,29 @@ module SmartBook
                 @opal.push(opal)
             end
 
+            def opal_require(req)
+                @opal_require.push(req)
+            end
+
             def output
+                @opal_compile = []
+
+                # # puts "@@req=#{@@req}"
+                # if @@req == nil then
+                #     @opal_require.map do |req|                    
+                #         require req
+                #     end
+                #     @@req = true
+                # end
+
+                @opal_compile = @opal_compile + @opal_require.map do |req|
+                    require req
+                    Opal::Builder.new.build_str("require '#{req}'","")                
+                end
+                @opal_compile = @opal_compile + @opal.map do |opal|
+                    Opal::Builder.new.build_str(opal,"")                
+                end
+
                 <<~HTML
                 <html>
                     <head>
@@ -42,7 +78,7 @@ module SmartBook
                     </head>
                     <body>
                     #{@body.join("\n")}
-                    #{@js.map do |jscode| 
+                    #{(@js+@opal_compile).map do |jscode| 
                         <<~JSCODE
                             <script type="application/javascript">
                                 #{jscode}
@@ -55,7 +91,8 @@ module SmartBook
             end
 
             def open_browser(file)
-                @file = file
+
+                @file = File.expand_path(file)
 
                 ## auto-refresh feature for development
                 self.js(<<~JSCODE
@@ -102,6 +139,8 @@ module SmartBook
                             raise WEBrick::HTTPStatus::Forbidden
                         end
 
+                        # puts "http mtime = #{File.mtime(@file).to_i.to_s}"
+
                         res.body = File.mtime(@file).to_i.to_s
                     end            
                         
@@ -113,6 +152,7 @@ module SmartBook
                             raise WEBrick::HTTPStatus::Forbidden
                         end
                         
+                        # puts "@file =#{@file}"
                         load(@file)
 
                         res.body = @@last_render.output

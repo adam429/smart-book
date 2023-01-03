@@ -6,3 +6,12 @@ gem 'parser'
 gem 'unparser'
 gem 'thread'
 gem 'jscall'
+
+gem 'opal'
+
+
+
+gem 'opal-browser'
+gem 'opal-jquery'
+gem 'jquery'
+gem 'nokogiri'
