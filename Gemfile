@@ -8,6 +8,7 @@ gem 'thread'
 gem 'jscall'
 
 gem 'method_source'
+gem "minitest"
 
 gem 'opal'
 gem 'opal-browser'

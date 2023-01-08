@@ -17,3 +17,7 @@ For Example:
 ```require_remote '@adam429/smart-book/examples/require_remote/lib/math_lib'```
 
 The code will require file from https://github.com/adam429/smart-book/blob/main/examples/require_remote/lib/math_lib.rb
+
+## render
+
+

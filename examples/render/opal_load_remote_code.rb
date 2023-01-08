@@ -1,9 +1,12 @@
+# todo
+
 require 'smartbook'
 
 src = <<~HTML
     <h1>Load Code into Browser</h1>
-    <pre><%= :sum.source_code %></pre>
-    <pre><%= :MathLib.source_code %>  </pre>
+
+    <pre>@adam429/smart-book/examples/require_remote/lib/math_lib</pre>
+
     <h1>Run Code in Browser</h1>
     <p> a: <span id="a"></span>   b: <span id="b"></span></p>
     <p> sum: <span id="sum"></span></p>
@@ -15,26 +18,15 @@ opal = <<~OPAL
     b = 4
     $document.at_css("#a").inner_html = a
     $document.at_css("#b").inner_html = b
-    $document.at_css("#sum").inner_html = sum(a,b)
+    $document.at_css("#sum").inner_html = MathLib.sum(a,b)
     $document.at_css("#mul").inner_html = MathLib.mul(a,b)
 OPAL
-
-def sum(a,b)
-    a+b
-end
-
-class MathLib
-    def self.mul(a,b)
-        a*b
-    end
-end
 
 render = SmartBook::Render::Render.new
 
 render.body(src)
 
-render.opal_load_code(:sum)
-render.opal_load_code(:MathLib)
+render.opal_load_code("@adam429/smart-book/examples/require_remote/lib/math_lib")
 render.opal(opal)
 
 render.open_browser(__FILE__)

@@ -235,7 +235,7 @@ module SmartBook
         end
 
         CONFIG = {
-            :THREAD_POOL => 10,
+            :THREAD_POOL => 1,
             :CACHE_DIR => ".remote_cache",
             :REMOTE_PARSER => [GithubRemote],
             :LOCAL_SAVER => CacheLocal

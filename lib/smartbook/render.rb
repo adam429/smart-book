@@ -2,11 +2,23 @@ require 'webrick'
 require 'erb'
 require 'opal'
 require 'opal-browser'
-require 'method_source'
+
+require 'smartbook/source_code'
 
 module SmartBook
 
     module Render
+
+        class Binding
+            def initialize(vars)
+                vars.each do |k,v|
+                    instance_variable_set("@#{k}", v)
+                end
+            end
+            def get_binding
+                binding
+            end
+        end
 
         class Render       
             @@server = nil 
@@ -24,19 +36,9 @@ module SmartBook
                 @opal_require = ["opal","promise","native","browser"]
             end
 
-            class VarBinding
-                def initialize(vars)
-                    vars.each do |k,v|
-                        instance_variable_set("@#{k}", v)
-                    end
-                end
-                def get_binding
-                  binding
-                end
-            end
 
             def body(html,vars={})                
-                @body.push(ERB.new(html).result(VarBinding.new(vars).get_binding))
+                @body.push(ERB.new(html).result(Binding.new(vars).get_binding))
             end
 
             def head(html)
@@ -52,14 +54,7 @@ module SmartBook
             end
 
             def opal_load_code(symbol)
-                begin
-                    opal(MethodSource::source_helper(Object.const_source_location(symbol)))
-                rescue 
-                end
-                begin
-                    opal(method(symbol).source)
-                rescue 
-                end
+                opal(symbol.source_code)
             end
 
             def opal_require(opal_req)
@@ -127,7 +122,6 @@ module SmartBook
                 # puts "@@server = #{@@server}"
 
                 if @@server == nil then
-                    @@first_render = self
 
 
                     status = system "open http://localhost:8080/render"
@@ -153,14 +147,18 @@ module SmartBook
                         
         
                     @@server.mount_proc('/render') do |req, res|
+
                         peer_address  = req.peeraddr[3]
                         if peer_address != '127.0.0.1'
                             $stderr.puts "access denied address=#{peer_address}"
                             raise WEBrick::HTTPStatus::Forbidden
                         end
                         
-                        # puts "@file =#{@file}"
-                        load(@file)
+                        if @@first_render then
+                            load(@file)
+                        else
+                            @@first_render = self
+                        end
 
                         res.body = @@last_render.output
                     end            
@@ -174,3 +172,5 @@ module SmartBook
     end
 
 end
+
+
