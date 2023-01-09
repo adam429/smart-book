@@ -17,7 +17,7 @@ opal2 = <<~OPAL
 
     $document.at_css("#button").on(:click) do
         i = i+1
-        $document.at_css("#counter").inner_html = i
+        $document.at_css("#counter").inner_text = i
     end
 OPAL
 

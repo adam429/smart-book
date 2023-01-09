@@ -53,6 +53,7 @@ class TestPersistence < Minitest::Test
         end
 
         def to_json(*args)
+            self.add_import(self)
             {
                 JSON.create_id  => self.class.name,
                 :data           => @value
@@ -64,7 +65,11 @@ class TestPersistence < Minitest::Test
         end            
     end
 
+    class Bar < Foo
+    end
+
     def test_persistence_class
+        # Object Persistence
         code = SmartBook::Persistence.to_opal(Foo.new(1),"foo")
         code = "require 'json'\n" + code
         code = code + <<~CODE
@@ -75,9 +80,43 @@ class TestPersistence < Minitest::Test
         FileUtils.mkdir_p(".tmp")
         File.open(".tmp/test.rb","w") do |file| file.write(code) end
         assert `ruby .tmp/test.rb` == "ok\n"        
-        # assert `opal .tmp/test.rb` == "ok\n"        
+        assert `opal .tmp/test.rb` == "ok\n"        
 
-        # todo: failure - need json create object in opal
+
+
+        # Object Persistence
+        code = SmartBook::Persistence.to_opal(Foo.new([1,2,3,{:a=>4,:b=>5}]),"foo")
+        code = "require 'json'\n" + code
+        code = code + <<~CODE
+            puts "error" if foo.value!=[1,2,3,{:a=>4,:b=>5}]
+            puts "ok"
+        CODE
+
+        FileUtils.mkdir_p(".tmp")
+        File.open(".tmp/test.rb","w") do |file| file.write(code) end
+        assert `ruby .tmp/test.rb` == "ok\n"        
+        assert `opal .tmp/test.rb` == "ok\n"        
+
+
+
+        # Object Persistence with another Object in value
+        a = Foo.new(1)
+        b = Foo.new(2)
+        c = Bar.new({a:a,b:b})
+
+        code = SmartBook::Persistence.to_opal(c,"foo")
+        code = "require 'json'\n" + code
+        code = code + <<~CODE
+            puts "error" if foo.value[:a].value!=1
+            puts "error" if foo.value[:b].value!=2
+            puts "ok"
+        CODE
+
+        FileUtils.mkdir_p(".tmp")
+        File.open(".tmp/test.rb","w") do |file| file.write(code) end
+        assert `ruby .tmp/test.rb` == "ok\n"        
+        assert `opal .tmp/test.rb` == "ok\n"        
+
     end
 
 end

@@ -10,7 +10,8 @@ module SmartBook
     module Render
 
         class Binding
-            def initialize(vars)
+            def initialize(vars,render)
+                @__render = render
                 vars.each do |k,v|
                     instance_variable_set("@#{k}", v)
                 end
@@ -18,15 +19,20 @@ module SmartBook
             def get_binding
                 binding
             end
+            def get_render
+                @__render
+            end
         end
 
         class Render       
             @@server = nil 
             @@first_render = nil
             @@last_render = nil
-            # @@req = nil
 
             attr_accessor :body, :head, :js, :opal, :opal_require, :file
+            attr_accessor :opal_before_code, :opal_after_code
+            attr_accessor :opal_before_code_lazy, :opal_after_code_lazy
+
 
             def initialize
                 @body = []
@@ -34,11 +40,15 @@ module SmartBook
                 @js = []
                 @opal = []
                 @opal_require = ["opal","promise","native","browser"]
+                @opal_before_code = {:default=>[]}
+                @opal_after_code = {:default=>[]}
+                @opal_before_code_lazy = {:default=>[]}
+                @opal_after_code_lazy = {:default=>[]}
             end
 
 
-            def body(html,vars={})                
-                @body.push(ERB.new(html).result(Binding.new(vars).get_binding))
+            def body(html,vars={})    
+                @body.push(ERB.new(html).result(Binding.new(vars,self).get_binding))
             end
 
             def head(html)
@@ -53,6 +63,40 @@ module SmartBook
                 @opal.push(opal)
             end
 
+            def add_opal_before_code(opal,key=:default)
+                if key==:default then
+                    @opal_before_code[key].push(opal) 
+                else
+                    @opal_before_code[key]=opal
+
+                end
+            end
+
+            def add_opal_after_code(opal,key=:default)
+                if key==:default then
+                    @opal_after_code[key].push(opal)
+                else
+                    @opal_after_code[key]=opal
+                end
+            end
+
+            def add_opal_before_code_lazy(key=:default, &opal)
+                if key==:default then
+                    @opal_before_code_lazy[key].push(opal) 
+                else
+                    @opal_before_code_lazy[key]=opal
+                end
+            end
+
+            def add_opal_after_code_lazy(key=:default, &opal)
+                if key==:default then
+                    @opal_after_code_lazy[key].push(opal)
+                else
+                    @opal_after_code_lazy[key]=opal
+                end
+            end
+
+
             def opal_load_code(symbol)
                 opal(symbol.source_code)
             end
@@ -62,13 +106,63 @@ module SmartBook
             end
 
             def output
+                # puts "@body=#{@body}"
+                # puts "VarBinding.global=#{ SmartBook::Widget::VarBinding.global}"
+                # puts "@opal_before_code=#{@opal_before_code}"
+                # puts "@opal_after_code=#{@opal_after_code}"
+                # puts "@opal_before_code_lazy=#{@opal_before_code_lazy}"
+                # puts "@opal_after_code_lazy=#{@opal_after_code_lazy}"
+
                 @opal_compile = []
+
+                _opal_before_code = @opal_before_code.map do |k,v|
+                    if k==:default then
+                        v.join("\n")
+                    else
+                        v
+                    end
+                end.filter do |x| x!="" end
+
+                _opal_after_code = @opal_after_code.map do |k,v|
+                    if k==:default then
+                        v.join("\n")
+                    else
+                        v
+                    end
+                end.filter do |x| x!="" end
+
+
+                _opal_before_code_lazy = @opal_before_code_lazy.map do |k,v|
+                    if k==:default then
+                        v.map {|x| x.call}.join("\n")
+                    else
+                        v.call
+                    end
+                end.filter do |x| x!="" end
+
+                _opal_after_code_lazy = @opal_after_code_lazy.map do |k,v|
+                    if k==:default then
+                        v.map {|x| x.call}.join("\n")
+                    else
+                        v.call
+                    end
+                end.filter do |x| x!="" end
+    
+                # puts _opal_before_code_lazy
+                # puts _opal_before_code
+                # puts _opal_after_code
+                # puts _opal_after_code_lazy
+
+                
+                to_opal_compile = _opal_before_code_lazy + _opal_before_code+@opal+_opal_after_code + _opal_after_code_lazy
+                
+                # puts to_opal_compile
 
                 if @opal.size > 0 then
                     @opal_compile = @opal_compile + @opal_require.map do |opal_req|
                         Opal::Builder.new.build_str("require '#{opal_req}'","")                
                     end
-                    @opal_compile = @opal_compile + @opal.map do |opal|
+                    @opal_compile = @opal_compile + to_opal_compile.map do |opal|
                         Opal::Builder.new.build_str(opal,"")                
                     end
                 end
@@ -155,6 +249,7 @@ module SmartBook
                         end
                         
                         if @@first_render then
+                            SmartBook::Widget::VarBinding.global = {}
                             load(@file)
                         else
                             @@first_render = self
