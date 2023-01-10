@@ -53,6 +53,5 @@ render = SmartBook::Render::Render.new
 
 render.body(src)
 render.opal(opal)
-# render.output
 render.open_browser(__FILE__)
 
