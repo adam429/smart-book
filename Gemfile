@@ -6,9 +6,10 @@ gem 'parser'
 gem 'unparser'
 gem 'thread'
 gem 'jscall'
-
+gem 'keccak256'
 gem 'method_source'
 gem "minitest"
 
 gem 'opal'
 gem 'opal-browser'
+
