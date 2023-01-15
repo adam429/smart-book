@@ -16,9 +16,17 @@ end
 class FileCache
     @@cache = {}
     @@semaphore = Mutex.new
+    @@enable = true
 
     def self.cache
         @@cache
+    end
+    def self.stop_cache
+        @@enable = false
+    end
+
+    def self.start_cache
+        @@enable = true
     end
 
     def self.cache=(cache)
@@ -43,7 +51,7 @@ class FileCache
     end
 
     def self.force_update_cache(key,&block)
-        # return block.call
+        return block.call if @@enable == false
 
         ret = block.call
 
@@ -56,7 +64,8 @@ class FileCache
     end
 
     def self.update_cache(key,&block)
-        # return block.call
+        return block.call if @@enable == false
+
         return block.call if key.gsub(/\)$/,"").gsub(/^[^\(]+\(/,"").split(",").include?("latest")
         return @@cache[key] if @@cache.has_key?(key)
 
@@ -73,27 +82,47 @@ class FileCache
         @@cache.delete(key)
         self.save_cache
     end
+
+
+    ## ==todo==
+    ## decouple logic to pure FileCahce,
+    ## create abstract class Cache --> FileCache / RedisCache
+    ## Web3 cache with abstract class Cache
+    ## todo add cache write / read count and time
+
+    def self.read_cache(key)
+        return @@cache[key]
+    end
+
+    def self.write_cache(key,value)
+        @@cache[key] = value
+        self.save_cache
+    end
+
+    def self.skip_cache(value)
+    end
 end
+
 
 FileCache.restore_cache
 
-class Web3 < FileCache
-    def self.update_cache(key,&block)
-        return block.call if key.gsub(/\)$/,"").gsub(/^[^\(]+\(/,"").split(",").include?("latest")
-        return @@cache[key] if @@cache[key]
+# class Web3 < FileCache
+#     def self.update_cache(key,&block)
+#         return block.call if key.gsub(/\)$/,"").gsub(/^[^\(]+\(/,"").split(",").include?("latest")
+#         return @@cache[key] if @@cache[key]
 
-        ret = block.call
-        @@cache[key] = ret
-        self.save_cache
+#         ret = block.call
+#         @@cache[key] = ret
+#         self.save_cache
 
-        return ret
-    end
+#         return ret
+#     end
 
-    def self.delete_cache(key)
-        @@cache.delete(key)
-        self.save_cache
-    end
-end
+#     def self.delete_cache(key)
+#         @@cache.delete(key)
+#         self.save_cache
+#     end
+# end
 
 
 class Contract < FileCache
@@ -178,16 +207,19 @@ class Contract < FileCache
         if args.last.class == Hash and args.last[:blockTag].to_i>0 then
 
             self.class.update_cache("#{@address}.#{@name}.#{name}(#{args.join(",")})") do    
-                ret = @contract.send(name,*args)
-                ret = self.class.convertBigNumberToString(ret)
-                ret
+                @@semaphore.synchronize do                
+                    ret = @contract.send(name,*args)
+                    ret = self.class.convertBigNumberToString(ret)
+                    ret
+                end
             end
         else
             @contract.send(name,*args)
-
-            ret = @contract.send(name,*args)
-            ret = self.class.convertBigNumberToString(ret)
-            ret
+                @@semaphore.synchronize do                
+                    ret = @contract.send(name,*args)
+                    ret = self.class.convertBigNumberToString(ret)
+                    ret
+                end
         end
     end
 end
@@ -242,9 +274,9 @@ class Etherscan < FileCache
     
     def self.getBlockNoByTime(timestamp)
         self.update_cache("#{__method__}(#{ method(__method__).parameters.filter{|t,_| t!=:block }.map{|_,v| binding.local_variable_get(v)}.join(",")  })") do    
-            url = "https://api.etherscan.io/api?module=block&action=getblocknobytime&timestamp=#{timestamp}&closest=before&apikey=#{@@etherscan_api_key}"
+            url = "https://api.etherscan.io/api?module=block&action=getblocknobytime&timestamp=#{timestamp.to_i}&closest=before&apikey=#{@@etherscan_api_key}"
 
-            ret = JSON.load(Net::HTTP.get_response(URI(url)).body)["result"]
+            ret = JSON.load(Net::HTTP.get_response(URI(url)).body)["result"].to_i
         end
     end        
 
@@ -252,10 +284,32 @@ end
 
 class Web3 < FileCache
     Jscall.exec <<CODE
-        global.ethers = require('ethers')
+        const { PromisePool } = require('@supercharge/promise-pool')
 
+        global.ethers = require('ethers')
+    
+        async function parallel(obj,func, argv, concurrency=10)
+        {
+            return (await PromisePool.for(argv).withConcurrency(concurrency).process(async item => {
+                if (obj==null) { obj = global }
+                return await obj[func](item)
+              })).results
+        }
+    
+        async function parallelEx(obj,func, argv, concurrency=10)
+        {
+            return (await PromisePool.for([...Array(obj.length).keys()]).withConcurrency(concurrency).process(async index => {
+                if (obj[index]==null) { obj[index] = global }
+                return await obj[index][func[[index]]](argv[index])
+              })).results
+        }
+    
         async function init_provider(rpc_node) {
             global.provider = await new ethers.getDefaultProvider(rpc_node)        
+        }
+
+        async function destroy_provider(){
+            await global.provider.destroy()            
         }
 
         async function init_contract(abi,address)
@@ -265,11 +319,14 @@ class Web3 < FileCache
 
         async function getTransaction(txhash)
         {
-            tx = await global.provider.getTransaction(txhash);
+            let tx = await global.provider.getTransaction(txhash);
+            
+            delete tx.wait
+            delete tx.accessList
 
             const map = new Map();
 
-            for (var key in tx) {
+            for (let key in tx) {
                 if (tx[key]!=null && tx[key]._isBigNumber) {
                     tx[key] = tx[key].toString()
                 }
@@ -279,15 +336,54 @@ class Web3 < FileCache
             return map
         }
 
-        async function getBlock(blockno)
+        async function getBlockWithTransactions(blockno)
         {
-            block = await global.provider.getBlock(blockno);
+            let block = await global.provider.getBlockWithTransactions(blockno);
 
             const map = new Map();
 
-            for (var key in block) {
+            for (let key in block) {
                 if (block[key]!=null && block[key]._isBigNumber) {
                     block[key] = block[key].toString()
+                }
+                if (key!="transactions") {
+                    map.set(key,block[key])
+                }
+            }
+
+            const transactions = []
+
+            for (let  key in block.transactions) {
+                let  item = new Map();
+                data = block.transactions[key]
+                delete data.wait
+                delete data.accessList
+
+                for (let  key2 in data) {
+                    if (data[key2]!=null && data[key2]._isBigNumber) {
+                        data[key2] = data[key2].toString()
+                    }
+                    item.set(key2,data[key2])
+                }
+                transactions.push(item)
+            }
+
+            map.set("transactions",transactions)
+
+
+            return map
+        }
+
+        async function getBlock(blockno)
+        {
+            let block = await global.provider.getBlock(blockno);
+
+            const map = new Map();
+
+            for (let key in block) {
+                if (block[key]!=null && block[key]._isBigNumber) {
+                    block[key] = block[key].toString()
+                    
                 }
                 map.set(key,block[key])
             }
@@ -295,13 +391,14 @@ class Web3 < FileCache
             return map
         }
 
+
         async function getTransactionReceipt(txhash)
         {
-            receipt = await global.provider.getTransactionReceipt(txhash);
+            let receipt = await global.provider.getTransactionReceipt(txhash);
             
             const map = new Map();
 
-            for (var key in receipt) {
+            for (let key in receipt) {
                 if (receipt[key]!=null && receipt[key]._isBigNumber) {
                   receipt[key] = receipt[key].toString()
                 }
@@ -312,10 +409,10 @@ class Web3 < FileCache
 
             const logs = []
 
-            for (var key in receipt.logs) {
-                var item = new Map();
+            for (let  key in receipt.logs) {
+                let  item = new Map();
                 data = receipt.logs[key]
-                for (var key2 in data) {
+                for (let  key2 in data) {
                     item.set(key2,data[key2])
                 }
                 logs.push(item)
@@ -326,12 +423,17 @@ class Web3 < FileCache
             return map
         }
 CODE
-
-
+    
     def self.init_provider(rpc_node)
-        # @@semaphore.synchronize do
-            Jscall.init_provider(RPC_NODE)
-        # end
+        @@semaphore.synchronize do
+            Jscall.init_provider(rpc_node)
+        end
+    end
+
+    def self.destroy_provider()
+        @@semaphore.synchronize do
+            Jscall.destroy_provider()
+        end
     end
 
     def self.contract(abi,address)
@@ -341,61 +443,80 @@ CODE
     end
 
     def self.provider
-        # @semaphore.synchronize do
+        @@semaphore.synchronize do
             Jscall.provider
-        # end
+        end
+    end
+
+    def parallel(func, argv, concurrency=10)
+        # generate key
+        # match key in cache
+        # unmatch key to call func parallel
+        # write back to cache
+        # return all
+    end
+
+    def parallelEx(func, argv, concurrency=10)
     end
 
     def self.getCode(address,block="latest")
         self.update_cache("#{__method__}(#{ method(__method__).parameters.filter{|t,_| t!=:block }.map{|_,v| binding.local_variable_get(v)}.join(",")  })") do    
-            # @semaphore.synchronize do
+            @@semaphore.synchronize do
                 Jscall.provider.getCode(address,block)
-            # end
+            end
         end
     end
 
     def self.getBlock(block)
         self.update_cache("#{__method__}(#{ method(__method__).parameters.filter{|t,_| t!=:block }.map{|_,v| binding.local_variable_get(v)}.join(",")  })") do    
-            # @semaphore.synchronize do
+            @@semaphore.synchronize do
                 Jscall.getBlock(block)
-            # end
+            end
+        end
+    end
+
+    def self.getBlockWithTransactions(block)
+        self.update_cache("#{__method__}(#{ method(__method__).parameters.filter{|t,_| t!=:block }.map{|_,v| binding.local_variable_get(v)}.join(",")  })") do    
+            @@semaphore.synchronize do
+                Jscall.getBlockWithTransactions(block)
+            end
         end
     end
 
     def self.getTransaction(txhash)
         self.update_cache("#{__method__}(#{ method(__method__).parameters.filter{|t,_| t!=:block }.map{|_,v| binding.local_variable_get(v)}.join(",")  })") do    
-            # @semaphore.synchronize do
+            @@semaphore.synchronize do
                 Jscall.getTransaction(txhash)
-            # end
+            end
         end
     end
 
     def self.getTransactionReceipt(txhash)
         self.update_cache("#{__method__}(#{ method(__method__).parameters.filter{|t,_| t!=:block }.map{|_,v| binding.local_variable_get(v)}.join(",")  })") do    
-            # @semaphore.synchronize do
+            @@semaphore.synchronize do
                 Jscall.getTransactionReceipt(txhash)
-            # end
+            end
         end
     end
 
     def self.getStorageAt(addr, pos, block="latest")
         self.update_cache("#{__method__}(#{ method(__method__).parameters.filter{|t,_| t!=:block }.map{|_,v| binding.local_variable_get(v)}.join(",")  })") do    
-            # @semaphore.synchronize do
+            @@semaphore.synchronize do
                 Jscall.provider.getStorageAt(txhash)
-            # end
+            end
         end
     end    
 
     def self.getBlockNumber()
-        # @semaphore.synchronize do
+        @@semaphore.synchronize do
             Jscall.provider.getBlockNumber()
-        # end
+        end
     end
 
     def self.getGasPrice()
-        # @semaphore.synchronize do
+        @@semaphore.synchronize do
             Jscall.provider.getGasPrice()
-        # end
+        end
     end
 
     def self.getContractCreationBlock(address)

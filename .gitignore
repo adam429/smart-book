@@ -11,5 +11,6 @@
 ehthumbs.db
 Thumbs.db
 .env
+.cache
 todos
 Gemfile.lock
