@@ -1,6 +1,6 @@
 require 'fileutils'
-require "minitest/autorun"
 require 'smartbook/persistence'
+require "minitest/autorun"
 
 class TestPersistence < Minitest::Test  
     def test_array

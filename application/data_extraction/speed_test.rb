@@ -3,8 +3,17 @@ require_relative './web3'
 
 RPC_NODE = [
 
+    "https://cloudflare-eth.com",
+    "wss://eth-mainnet.public.blastapi.io",
+    "https://singapore.rpc.blxrbdn.com",
+    "wss://ethereum.blockpi.network/v1/ws/0d003da4ffe05dddac1b42406674f5c94963df7d",
+    "https://eth-mainnet.gateway.pokt.network/v1/lb/a3f2f1189b88a981fa979e36"
+
+    "wss://withered-frosty-yard.discover.quiknode.pro/76b04f5c45862f810107ae9d99a504edbe8a365a/",
+    # "wss://ws-nd-080-785-128.p2pify.com/a19f67deff9f65348863a7ba3742a2e3",
+
 # "https://nd-431-941-913.p2pify.com/033947f49cd6564ef6011cfcac70e958",  # 6s
-"wss://ws-nd-431-941-913.p2pify.com/033947f49cd6564ef6011cfcac70e958",  # 2s
+# "wss://ws-nd-431-941-913.p2pify.com/033947f49cd6564ef6011cfcac70e958",  # 2s
 # "https://beacon-nd-431-941-913.p2pify.com/033947f49cd6564ef6011cfcac70e958",
 
 # "https://attentive-falling-haze.discover.quiknode.pro/582d2ad8f6c2a1595863481ae3608340ae29312c/",  # 40s
@@ -31,7 +40,7 @@ RPC_NODE.each do |rpc|
 
     block = Web3.getBlockNumber()
 
-    # puts Jscall.parallel(nil,"getBlockWithTransactions",(block-100..block).to_a,12).inspect
+    Jscall.parallel(nil,"getBlockWithTransactions",(block-100..block).to_a,12).inspect
 
     puts "rpc: #{rpc} | time: #{Time.now-time}s"
 end

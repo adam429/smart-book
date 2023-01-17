@@ -1,5 +1,5 @@
-require "minitest/autorun"
 require 'smartbook/source_code'
+require "minitest/autorun"
 
 def sum(a,b)
   return a+b

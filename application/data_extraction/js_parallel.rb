@@ -26,9 +26,17 @@ Jscall.exec <<CODE
     {
         return (await PromisePool.for([...Array(obj.length).keys()]).withConcurrency(concurrency).process(async index => {
             if (obj[index]==null) { obj[index] = global }
-            return await obj[index][func[[index]]](argv[index])
+            return await obj[index][func[index]](argv[index])
           })).results
     }
+
+    async function multiExec(argv, concurrency=10)
+    {
+        return (await PromisePool.for(argv).withConcurrency(concurrency).process(async item => {
+            return eval(item)
+          })).results
+    }
+
 CODE
 
 time = Time.now
@@ -41,6 +49,38 @@ time = Time.now
 puts "time: #{Time.now-time}s"
 
 
+module Jscall
+    def self.multi_exec(*argv)
+        Jscall.multiExec(argv)        
+    end
+end
+
+time = Time.now
+
+puts Jscall.multi_exec(
+    "test(1)",
+    "test(2)",
+    "test(3)",
+    "test(4)",
+    "test(5)",
+    "test(6)",
+    "test(7)",
+    "test(8)",
+    "test(9)",
+    "test(10)",
+    "test(11)",
+    "test(12)",
+    "test(13)",
+    "test(14)",
+    "test(15)",
+    "test(16)",
+    "test(17)",
+    "test(18)",
+    "test(19)",
+    "test(20)",
+).to_s
+
+puts "time: #{Time.now-time}s"
 
 # Parallel.map((1..20).to_a, in_threads: 5) do |x|
 #     puts "thread #{Thread.current.object_id} - begin x:#{x}"

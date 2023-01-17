@@ -2,6 +2,7 @@ source 'https://rubygems.org'
 
 ruby '3.2'
 
+gem 'dotenv'
 gem 'parser'
 gem 'unparser'
 

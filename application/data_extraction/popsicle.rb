@@ -2,7 +2,8 @@ require 'smartbook'
 require_relative './web3'
 
 ETHERSCAN_API_KEY = "545QYEP8TJKJWMZ7QP41QYXZNMJDVCJUI9"
-RPC_NODE = "wss://ws-nd-431-941-913.p2pify.com/033947f49cd6564ef6011cfcac70e958"
+RPC_NODE = "wss://withered-frosty-yard.discover.quiknode.pro/76b04f5c45862f810107ae9d99a504edbe8a365a/"
+# RPC_NODE = "wss://eth-mainnet.g.alchemy.com/v2/xOu9KmQYmgmqBuYhhPW0naOB9YRY3foa"
 CONTRACT_PLP_WETHICE = "0xff338d347e59d6b61e5c69382915d863bb22ef2f"
 
 Etherscan.api_key(ETHERSCAN_API_KEY)
@@ -13,6 +14,27 @@ Contract.add(:popsicle,JSON.load_file("./abi/PopsicleV3Optimizer.json"),CONTRACT
 txs = Etherscan.getAddressTx(CONTRACT_PLP_WETHICE)
 tx0 = Web3.parseTxs(txs[0]["hash"])
 blockNumber = tx0.blockNumber
+
+
+# time = Time.now
+# pool_address, token0, token1 = Jscall.parallelEx(
+#   [Contract.popsicle.contract,Contract.popsicle.contract,Contract.popsicle.contract],
+#   ["pool","token0","token1"],
+#   [nil,nil,nil]
+# )
+# puts "time: #{Time.now-time}"
+# puts "#{pool_address} #{token0} #{token1}"
+
+## Todo:
+## all jscall convert to lazy execution
+##    Contract.popsicle.pool ==> LazyExec
+##        LazyExec.value ==> value
+##    LazyExec.batch([a,b,c,d]) ==> [a.value,b.value,c.value,d.value]
+
+
+
+Contract.popsicle.send("pool",{:blockTag=>blockNumber})
+
 
 pool_address, token0, token1 = Thread.wait(
   ->{Contract.popsicle.pool({:blockTag=>blockNumber})},
@@ -34,7 +56,7 @@ Thread.wait(
 ->{puts "token1: #{Contract.token1.name({:blockTag=>blockNumber})}" }
 )
 
-# ## get daily data
+# # ## get daily data
 
 def next_day(time)
   time-(time.hour * 3600 + time.min*60 +time.sec + time.subsec) + 3600*24
@@ -52,12 +74,15 @@ time.map.with_index do |t,i|
   puts "data fetch #{i} at #{t} block #{block}"
   _, tick = Contract.pool.slot0({:blockTag=>block})
 
-  tickLower,tickUpper,usersPosition,usersAmounts,liquidity = Thread.wait(
+  puts "tick: #{tick}"
+
+  tickLower,tickUpper,usersPosition,usersAmounts,poolAmount0,poolAmount1 = Thread.wait(
     ->{Contract.popsicle.tickLower({:blockTag=>block})},
     ->{Contract.popsicle.tickUpper({:blockTag=>block})},
     ->{Contract.popsicle.position({:blockTag=>block})},
     ->{Contract.popsicle.usersAmounts({:blockTag=>block})},
-    ->{Contract.pool.liquidity({:blockTag=>block})}
+    ->{Contract.token0.balanceOf(Contract.pool.address,{:blockTag=>block})},
+    ->{Contract.token1.balanceOf(Contract.pool.address,{:blockTag=>block})}
   )
 
   ret = {
@@ -69,11 +94,18 @@ time.map.with_index do |t,i|
     tickUpper: tickUpper,
     usersPosition: usersPosition[0],
     usersAmounts: usersAmounts,
-    liquidity: liquidity,
-    percent: (usersPosition[0]*100/liquidity).round(2)
+    poolAmount: [poolAmount0,poolAmount1],
   }
   puts ret.to_s
   ret
 end
 
-# ## get contract tx
+# # ## get Contract Action
+
+txs = Etherscan.getAddressTx(CONTRACT_PLP_WETHICE)
+
+
+
+
+# # ## get contract tx
+Web3.destroy_provider 
