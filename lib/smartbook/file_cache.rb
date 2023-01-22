@@ -6,6 +6,8 @@ module SmartBook
     class Cache
         @@enable = true
         @@skip_cache = []
+        @@semaphore = Mutex.new
+
 
         def self.stop_cache
             @@enable = false
@@ -82,8 +84,26 @@ module SmartBook
             return cache_value["wt"] if cache_value.has_key?("wt")
         end
 
+        def self.save_cache(force=false)
+            if force then
+                # force save cache
+                @@semaphore.synchronize do
+                    _save_cache
+                end
+            else
+                # lazy save cache
+                Thread.new do
+                    lazy_time = 1
 
-        def self.save_cache
+                    @@save_cache_thread = Thread.current.object_id
+                    sleep(lazy_time)
+                    if @@save_cache_thread == Thread.current.object_id then
+                        @@semaphore.synchronize do
+                            _save_cache
+                        end
+                    end
+                end            
+            end
         end
 
         def self.load_cache
@@ -101,6 +121,8 @@ module SmartBook
         def self.clear_cache
         end
 
+        def self.filter(conditions,&block)          
+        end
     end
 
     class FileCache < Cache
@@ -123,10 +145,11 @@ module SmartBook
             @@cache_file=file
         end
 
-
-        def self.save_cache
+        def self._save_cache
+            # puts "Saving cache to #{@@cache_file}"
+            data = JSON.pretty_generate(@@cache)
             File.open(@@cache_file,"w") do |file|
-                file.write(JSON.pretty_generate(@@cache))
+                file.write(data)
             end
         end
 
@@ -140,34 +163,6 @@ module SmartBook
         def self.cache_size
             JSON.generate(@@cache).size
         end
-
-        # def self.force_update_cache(key,&block)
-        #     return block.call if @@enable == false
-
-        #     ret = block.call
-
-        #     return ret if ret.class== Jscall::RemoteRef
-
-        #     @@cache[key] = ret
-        #     self.save_cache
-
-        #     return ret
-        # end
-
-        # def self.update_cache(key,&block)
-        #     return block.call if @@enable == false
-
-        #     return block.call if key.gsub(/\)$/,"").gsub(/^[^\(]+\(/,"").split(",").include?("latest")
-        #     return @@cache[key] if @@cache.has_key?(key)
-
-        #     ret = block.call
-        #     return ret if ret.class== Jscall::RemoteRef
-
-        #     @@cache[key] = ret
-        #     self.save_cache
-
-        #     return ret
-        # end
 
         def self.delete_cache(key)
             @@cache.delete(key)
@@ -190,6 +185,12 @@ module SmartBook
         def self._write_cache(key,value)
             @@cache[key] = value
             self.save_cache
+        end
+
+        def self.filter(conditions,&block)          
+            @@cache.each do |key,value|
+                block.call(key,value) if key =~ conditions
+            end
         end
     end
 end

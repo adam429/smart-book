@@ -1,6 +1,6 @@
-# garnet
-
 # smart-book
+
+Todo: need more time to write documents.
 
 ## require_remote 
 
@@ -20,6 +20,13 @@ For Example:
 
 The code will require file from https://github.com/adam429/smart-book/blob/main/examples/require_remote/lib/math_lib.rb
 
-## render
+## render & widget
 
+## lazyexec
 
+## web3
+## calc-kernel
+
+## comment notebook
+
+## web notebook

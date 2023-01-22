@@ -7,26 +7,29 @@ module SmartBook
     class LazyExec 
         @@cache = FileCache
 
-        def self.init_jscall()
+        def self.init_jscall()  
             Jscall.exec <<~CODE
-                const { PromisePool } = require('@supercharge/promise-pool')
-        
-                async function multiExec(argv, concurrency=10)
-                {
-                    return (await PromisePool.for(argv).withConcurrency(concurrency).process(async item => {
-                        return eval(item)
-                    })).results
+                if (global.multiExec == undefined) {
+                    global.multiExec = async function (argv)
+                    {
+                        return await Promise.all(argv.map(async item => {
+                            return eval(item)
+                        }))
+                    }
                 }
             CODE
         end
 
-        # async function parallel(obj,func,argv, concurrency=10)
-        # {
-        #     return (await PromisePool.for([...Array(obj.length).keys()]).withConcurrency(concurrency).process(async index => {
-        #         if (obj[index]==null) { obj[index] = global }
-        #         return await obj[index][func[index]](argv[index])
-        #     })).results
-        # }
+        # Jscall.exec <<~CODE
+        #     const { PromisePool } = require('@supercharge/promise-pool')
+
+        #     async function multiExec(argv, concurrency=10)
+        #     {
+        #         return (await PromisePool.for(argv).withConcurrency(concurrency).process(async item => {
+        #             return eval(item)
+        #         })).results
+        #     }
+        # CODE
 
         def initialize(key=nil,eval=nil,&block)
             @key = key
@@ -54,6 +57,7 @@ module SmartBook
                 update_value(@block.call)
             elsif @eval!=nil then
                 if type=="Jscall" then
+                    self.class.init_jscall
                     value = Jscall.exec(code)
                     update_value(value)
                 end
@@ -85,6 +89,19 @@ module SmartBook
             else
                 exec
                 return @value
+            end
+        end
+
+        def then(proc=nil,&block)
+            if block and proc==nil then
+                return self.class.new(nil) do
+                    block.call(self.wait_value)
+                end
+            end
+            if block==nil and proc then
+                return self.class.new(nil) do
+                    proc.call(self.wait_value)
+                end
             end
         end
 
@@ -123,7 +140,9 @@ module SmartBook
     
                     proc_jscall = ->{
                         if multi_jscall.size>0 then
+                            self.init_jscall
                             result_js = Jscall.multiExec(multi_jscall.map {|x| x[:code]}) 
+
                             multi_jscall.each_with_index do |x,i|
                                 lazyexec[x[:index]].update_value(result_js[i])
                             end
@@ -137,7 +156,14 @@ module SmartBook
                 end                
             end
         end        
+
+        def to_i
+            wait_value.to_i
+        end
+
+        def to_s
+            wait_value.to_i
+        end
     end
 
-    LazyExec.init_jscall()
 end

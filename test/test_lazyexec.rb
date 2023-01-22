@@ -127,10 +127,17 @@ class TestLazyExec < Minitest::Test
 
     end
 
+    def test_then
+        lazyexec = SmartBook::LazyExec.new(nil,"sleep(0.5); 123").then do |x| x+1 end
+        assert lazyexec.wait_value == 124
+
+        lazyexec = SmartBook::LazyExec.new(nil,"sleep(0.5); 123").then(->(x){x+1})
+        assert lazyexec.wait_value == 124
+
+    end
+
     def test_multi_wait
         init
-
-        SmartBook::LazyExec.init_jscall()
 
         Jscall.exec("""
             function sleep(ms) {

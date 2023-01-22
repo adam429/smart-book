@@ -13,11 +13,21 @@ module SmartBook
             @@etherscan_api_key = key
         end
 
+        def self.cooldown_retry(&block)
+            while (ret=yield) == "Max rate limit reached, please use API Key for higher rate limit" do
+                puts "Etherscan Cooldown 0.2s"
+                sleep(0.2)
+            end
+            return ret
+        end
+
         def self.getAddressTx(address)
             LazyExec.new("#{__method__}(#{ method(__method__).parameters.filter{|t,_| t!=:block }.map{|_,v| binding.local_variable_get(v)}.join(",")  })") do
                 url = "https://api.etherscan.io/api?module=account&action=txlist&address=#{address}&startblock=0&endblock=99999999&page=0&offset=0&sort=asc&apikey=#{@@etherscan_api_key}"
 
-                JSON.load(Net::HTTP.get_response(URI(url)).body)["result"]
+                cooldown_retry do
+                    JSON.load(Net::HTTP.get_response(URI(url)).body)["result"]
+                end
             end
         end
 
@@ -25,7 +35,9 @@ module SmartBook
             LazyExec.new("#{__method__}(#{ method(__method__).parameters.filter{|t,_| t!=:block }.map{|_,v| binding.local_variable_get(v)}.join(",")  })") do
                 url = "https://api.etherscan.io/api?module=account&action=txlistinternal&txhash=#{txhash}&apikey=#{@@etherscan_api_key}"
 
-                JSON.load(Net::HTTP.get_response(URI(url)).body)["result"]
+                cooldown_retry do
+                    JSON.load(Net::HTTP.get_response(URI(url)).body)["result"]
+                end
             end
         end
 
@@ -33,7 +45,9 @@ module SmartBook
             LazyExec.new("#{__method__}(#{ method(__method__).parameters.filter{|t,_| t!=:block }.map{|_,v| binding.local_variable_get(v)}.join(",")  })") do
                 url = "https://api.etherscan.io/api?module=contract&action=getabi&address=#{address}&apikey=#{@@etherscan_api_key}"
 
-                ret = JSON.load(Net::HTTP.get_response(URI(url)).body)["result"]
+                ret = cooldown_retry do
+                    JSON.load(Net::HTTP.get_response(URI(url)).body)["result"]
+                end
 
                 if ret =="Contract source code not verified" then
                     ret = JSON.load_file(fallback_file) if fallback_file 
@@ -50,7 +64,9 @@ module SmartBook
             LazyExec.new("#{__method__}(#{ method(__method__).parameters.filter{|t,_| t!=:block }.map{|_,v| binding.local_variable_get(v)}.join(",")  })") do
                 url = "https://api.etherscan.io/api?module=contract&action=getcontractcreation&contractaddresses=#{address}&apikey=#{@@etherscan_api_key}"
 
-                JSON.load(Net::HTTP.get_response(URI(url)).body)["result"]
+                cooldown_retry do
+                    JSON.load(Net::HTTP.get_response(URI(url)).body)["result"]
+                end
             end
         end        
         
@@ -58,7 +74,9 @@ module SmartBook
             LazyExec.new("#{__method__}(#{ method(__method__).parameters.filter{|t,_| t!=:block }.map{|_,v| binding.local_variable_get(v)}.join(",")  })") do
                 url = "https://api.etherscan.io/api?module=block&action=getblocknobytime&timestamp=#{timestamp.to_i}&closest=before&apikey=#{@@etherscan_api_key}"
 
-                JSON.load(Net::HTTP.get_response(URI(url)).body)["result"].to_i
+                cooldown_retry do
+                    JSON.load(Net::HTTP.get_response(URI(url)).body)["result"]
+                end
             end
         end        
     end
@@ -73,156 +91,188 @@ module SmartBook
             value.class == Jscall::RemoteRef
         end
 
-        def self.init_web3()
+        def self.init_jscall()
+            begin
+                Jscall.exec <<~CODE
+                    if (global.ethers == undefined) {
 
-            Jscall.exec <<~CODE
-                global.ethers = require('ethers')
+                        global.ethers = require('ethers')
 
-                async function init_provider(rpc_node) {
-                    global.provider = await new ethers.getDefaultProvider(rpc_node)        
-                }
-
-                async function destroy_provider(){
-                    if (global.provider.destroy != null) {
-                        await global.provider.destroy()            
-                    }
-                }
-
-                async function init_contract(abi,address)
-                {
-                    return await new ethers.Contract(address, abi, global.provider)
-                }
-
-                function objectToMap(obj) {
-                    const map = new Map();
-
-                    for (let key in obj) {
-                        if (obj[key]!=null && obj[key]._isBigNumber) {
-                            obj[key] = obj[key].toString()
+                        global.init_provider = async function (rpc_node) {
+                            global.provider = await ethers.getDefaultProvider(rpc_node)                
                         }
-                        map.set(key,obj[key])
-                    }
 
-                    return map;
-                }
+                        global.destroy_provider = async function (){
+                            if (global.provider!=null && global.provider.destroy != null) {
+                                await global.provider.destroy()            
+                            }
+                        }
 
-                async function getTransaction(txhash)
-                {
-                    let tx = await global.provider.getTransaction(txhash);
-                    
-                    delete tx.wait
-                    delete tx.accessList
+                        global.init_contract = async function (abi,address)
+                        {
+                            return await new ethers.Contract(address, abi, global.provider)
+                        }
 
-                    return objectToMap(tx);
-                }
+                        global.objectToMap = function (obj) {
+                            const map = new Map();
 
-                async function getBlockWithTransactions(blockno)
-                {
-                    let block = await global.provider.getBlockWithTransactions(blockno);
+                            for (let key in obj) {
+                                if (obj[key]!=null && obj[key]._isBigNumber) {
+                                    obj[key] = obj[key].toString()
+                                }
+                                map.set(key,obj[key])
+                            }
 
-                    let map = objectToMap(block)
+                            return map;
+                        }
 
-                    const transactions = []
+                        global.getTransaction = async function (txhash)
+                        {
+                            let tx = await global.provider.getTransaction(txhash);
+                            
+                            delete tx.wait
+                            delete tx.accessList
 
-                    for (let  key in block.transactions) {
+                            return global.objectToMap(tx);
+                        }
 
-                        data = block.transactions[key]
-
-                        delete data.wait
-                        delete data.accessList
-
-                        transactions.push(objectToMap(data))
-                    }
-
-                    map.set("transactions",transactions)
-
-                    return map
-                }
-
-                async function getBlock(blockno)
-                {
-                    let block = await global.provider.getBlock(blockno);
-
-                    return objectToMap(block);                    
-                }
-
-
-                async function getTransactionReceipt(txhash)
-                {
-                    let receipt = await global.provider.getTransactionReceipt(txhash);
-                    
-                    let map = objectToMap(receipt)                    
-
-                    const logs = []
-
-                    for (let  key in receipt.logs) {
-                        data = receipt.logs[key]
-                        logs.push(objectToMap(data))
-                    }
-
-                    map.set("logs",logs)
-
-                    return map
-                }
-                null
-            CODE
+                        global.getBlockWithTransactions = async function (blockno)
+                        {
+                            let block = await global.provider.getBlockWithTransactions(blockno);
+            
+                            let map = objectToMap(block)
+            
+                            const transactions = []
+            
+                            for (let  key in block.transactions) {
+            
+                                data = block.transactions[key]
+            
+                                delete data.wait
+                                delete data.accessList
+            
+                                transactions.push(global.objectToMap(data))
+                            }
+            
+                            map.set("transactions",transactions)
+            
+                            return map
+                        }
+            
+                        global.getBlock = async function (blockno)
+                        {
+                            let block = await global.provider.getBlock(blockno);
+            
+                            return global.objectToMap(block);                    
+                        }
+            
+            
+                        global.getTransactionReceipt = async function (txhash)
+                        {
+                            let receipt = await global.provider.getTransactionReceipt(txhash);
+                            
+                            let map = global.objectToMap(receipt)                    
+            
+                            const logs = []
+            
+                            for (let  key in receipt.logs) {
+                                data = receipt.logs[key]
+                                logs.push(global.objectToMap(data))
+                            }
+            
+                            map.set("logs",logs)
+            
+                            return map
+                        }             
+                    }   
+                CODE
+            rescue
+            end
         end
 
         def self.init_provider(rpc_node)
-            Jscall.init_provider(rpc_node)
+            init_jscall
+            begin
+                Jscall.init_provider(rpc_node)
+                return true
+            rescue
+                return false
+            end
         end
 
         def self.destroy_provider()
-            Jscall.destroy_provider()
+            init_jscall
+            begin
+                Jscall.destroy_provider()
+                return true
+            rescue
+                return false
+            end
         end
 
         def self.contract(abi,address)
-            Jscall.init_contract(abi,address)
+            init_jscall
+            begin
+                return Jscall.init_contract(abi,address)
+            rescue
+                return nil
+            end
+            
         end
 
         def self.provider
+            init_jscall
             Jscall.provider
         end
 
         def self.getBlockNumber()
+            init_jscall
             LazyExec.new(nil,"Jscall:global.provider.getBlockNumber()") 
         end
 
         def self.getGasPrice()
+            init_jscall
             LazyExec.new(nil,"Jscall:global.provider.getGasPrice().then((x)=>{return parseInt(x.toString())})") 
         end
 
         def self.encode_js(obj)
             return "'#{obj}'" if obj.class == String
+            return "{#{obj.map{|k,v| "#{k}:#{encode_js(v)}" }.join(",")}}" if obj.class == Hash
             return obj 
         end
 
         def self.getCode(address,block="latest")
+            init_jscall
             LazyExec.new("#{__method__}(#{ method(__method__).parameters.filter{|t,_| t!=:block }.map{|_,v| binding.local_variable_get(v)}.join(",")  })",
                 "Jscall:global.provider.getCode(#{encode_js(address)},#{encode_js(block)})") 
         end
 
         def self.getBlock(block)
+            init_jscall
             LazyExec.new("#{__method__}(#{ method(__method__).parameters.filter{|t,_| t!=:block }.map{|_,v| binding.local_variable_get(v)}.join(",")  })",
                 "Jscall:global.getBlock(#{encode_js(block)})" )
         end
 
         def self.getBlockWithTransactions(block)
+            init_jscall
             LazyExec.new("#{__method__}(#{ method(__method__).parameters.filter{|t,_| t!=:block }.map{|_,v| binding.local_variable_get(v)}.join(",")  })",
                 "Jscall:global.getBlockWithTransactions(#{encode_js(block)})") 
         end
 
         def self.getTransaction(txhash)
+            init_jscall
             LazyExec.new("#{__method__}(#{ method(__method__).parameters.filter{|t,_| t!=:block }.map{|_,v| binding.local_variable_get(v)}.join(",")  })",
                 "Jscall:global.getTransaction(#{encode_js(txhash)})") 
         end
 
         def self.getTransactionReceipt(txhash)
+            init_jscall
             LazyExec.new("#{__method__}(#{ method(__method__).parameters.filter{|t,_| t!=:block }.map{|_,v| binding.local_variable_get(v)}.join(",")  })",
                 "Jscall:global.getTransactionReceipt(#{encode_js(txhash)})") 
         end
 
         def self.getStorageAt(addr, pos, block="latest")
+            init_jscall
             LazyExec.new("#{__method__}(#{ method(__method__).parameters.filter{|t,_| t!=:block }.map{|_,v| binding.local_variable_get(v)}.join(",")  })",
                 "Jscall:global.provider.getStorageAt(#{encode_js(addr)},#{encode_js(pos)},#{encode_js(block)})") 
         end    
@@ -341,8 +391,6 @@ module SmartBook
         def self.parseTxs(hash)
             Transaction.new(hash)
         end    
-
-        Web3.init_web3()
     end
 
 
@@ -388,22 +436,68 @@ module SmartBook
             FileCache.write_cache("abi_mapping",@@abi_mapping)
         end
 
+        def self._lookup_digest(digest)
+            ret = nil
+            begin
+                if digest.size == 10 then
+                    body = Net::HTTP.get_response(URI("https://sig.eth.samczsun.com/api/v1/signatures?function=#{digest}")).body
+                    ret = [JSON.load(body)["result"]["function"][digest].first["name"],""]
+                end
+                if digest.size == 66 then
+                    body = Net::HTTP.get_response(URI("https://sig.eth.samczsun.com/api/v1/signatures?event=#{digest}")).body
+                    ret = [JSON.load(body)["result"]["event"][digest].first["name"],""]
+                end
+
+                # puts "sig.eth.samczsun.com #{ret}"
+            rescue
+            end
+            return ret if ret
+
+            
+            begin 
+                if digest.size == 10 then
+                    body = Net::HTTP.get_response(URI("https://www.4byte.directory/api/v1/signatures/?hex_signature=#{digest}")).body
+                    result = JSON.load(body)["results"]
+                    ret = [result.first["text_signature"],""] if result and result.size > 0
+                end
+                if digest.size == 66 then
+                    body = Net::HTTP.get_response(URI("https://www.4byte.directory/api/v1/event-signatures/?hex_signature=#{digest}")).body
+                    result = JSON.load(body)["results"]
+                    ret = [result.first["text_signature"],""] if result and result.size > 0
+                end
+
+                # puts "4byte.directory #{ret}"
+            rescue
+            end
+            return ret if ret            
+
+            return ["digest not found",""]
+        end
+
         def self.search_digest(digest)
             return @@abi_mapping[digest] if @@abi_mapping[digest]
 
-            raise "todo search in 4byte.directory api #{digest}"
-            ## todo search in 4byte.directory api
+            lookup = self._lookup_digest(digest)
+
+            if lookup!="digest not found" then
+                @@abi_mapping[digest] = lookup
+                FileCache.write_cache("abi_mapping",@@abi_mapping)
+            end
+
+            return lookup
+
+            raise "digest not found #{digest}"
         end
 
         def self.method_missing(name, *args)
-            if @@list[name.to_sym] then
+            if @@list.has_key?(name.to_sym) then
                 return @@list[name.to_sym][:ruby_obj]
             else
                 super
             end
         end
 
-        attr_reader :contract
+        attr_reader :address
 
         def initialize(contract,name,address)
             @contract = contract
@@ -432,7 +526,7 @@ module SmartBook
             # jscall version to run parallel via LazyExec
             jscode = """Jscall:Ruby
                             .get_exported_imported()[0]
-                            .objects[#{@contract.__get_id}][#{Web3.encode_js(name.to_s)}](#{args.map {|i| Web3.encode_js(i)}.join(",")})
+                            .objects[#{ @contract ? @contract.__get_id : nil}][#{Web3.encode_js(name.to_s)}](#{args.map {|i| Web3.encode_js(i)}.join(",")})
                             .then( (x)=>{ 
                                 if (x._isBigNumber) {
                                     return x.toString();
@@ -441,6 +535,8 @@ module SmartBook
                                     return x.map( (y)=>{
                                         if (y._isBigNumber) {
                                             return y.toString();
+                                        } else {
+                                            return y;
                                         }
                                     });
                                 }
@@ -458,13 +554,11 @@ module SmartBook
         end
     end
 
-    ## here
-
     class Transaction
         attr_reader :parse, :tx_internal, :tx, :receipt
 
         def method_missing(name, *args)
-            if @parse[name.to_sym] then
+            if @parse.has_key?(name.to_sym) then
                 return @parse[name.to_sym]
             else
                 super
@@ -478,15 +572,14 @@ module SmartBook
         def initialize(hash)
             @parse = {}
         
-            Thread.wait(
-                ->{@tx_internal = Etherscan.getTxInternal(hash)},
-                ->{@tx = Web3.getTransaction(hash)
+            @tx_internal, @tx, @receipt = LazyExec.wait_value(
+                [Etherscan.getTxInternal(hash),
+                Web3.getTransaction(hash),
+                Web3.getTransactionReceipt(hash)])
 
-                @parse[:blockNumber] = @tx["blockNumber"]
-                @block = Web3.getBlock(@parse[:blockNumber])    
-                },
-                ->{@receipt = Web3.getTransactionReceipt(hash)}
-            )
+            @parse[:blockNumber] = @tx["blockNumber"]
+            @block = Web3.getBlock(@parse[:blockNumber]).wait_value
+            
 
             @parse[:blockTime] = Time.at(@block["timestamp"])
             @parse[:txHash] = @tx["hash"]
@@ -506,7 +599,7 @@ module SmartBook
         
             @parse[:status] = @receipt["status"] == 1 ? "success" : "failure"
 
-            @parse[:logs] = @receipt["logs"].map do |log|
+            @parse[:logs] = (@receipt["logs"] or []).map do |log|
                 {address:log["address"]}.merge(Web3.decode_event(log["topics"],log["data"]))
             end
             

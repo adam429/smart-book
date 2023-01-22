@@ -15,9 +15,8 @@ class TestWeb3 < Minitest::Test
     end
 
     def test_rpc_node_wss
-        SmartBook::Web3.init_web3()
 
-        rpc_node = "wss://eth.llamarpc.com"
+        rpc_node = "wss://eth-mainnet.public.blastapi.io"
         SmartBook::Web3.init_provider(rpc_node)
 
         assert SmartBook::Web3.getBlockNumber().wait_value.class == Integer
@@ -27,7 +26,6 @@ class TestWeb3 < Minitest::Test
     end
 
     def test_rpc_node_http
-        SmartBook::Web3.init_web3()
 
         rpc_node = "https://eth-mainnet.public.blastapi.io"
         SmartBook::Web3.init_provider(rpc_node)
@@ -41,7 +39,6 @@ class TestWeb3 < Minitest::Test
     def test_rpc_node
         init 
         
-        SmartBook::Web3.init_web3()
 
         rpc_node = "wss://eth.llamarpc.com"
         SmartBook::Web3.init_provider(rpc_node)
@@ -89,7 +86,7 @@ class TestWeb3 < Minitest::Test
         assert tx[0]["blockNumber"] == "4634748"
 
 
-        assert SmartBook::Etherscan.getBlockNoByTime(Time.now).wait_value > 16400000
+        assert SmartBook::Etherscan.getBlockNoByTime(Time.now).wait_value.to_i > 16400000
 
         assert SmartBook::Etherscan.getContractCreation("0xdAC17F958D2ee523a2206206994597C13D831ec7").wait_value.first["contractCreator"]  == "0x36928500bc1dcd7af6a2b4008875cc336b927d57"
 
@@ -105,8 +102,6 @@ class TestWeb3 < Minitest::Test
 
     def test_contract
         init 
-        SmartBook::Web3.init_web3()
-        SmartBook::LazyExec.init_jscall()
 
         rpc_node = "wss://eth.llamarpc.com"
         SmartBook::Web3.init_provider(rpc_node)
@@ -144,6 +139,92 @@ class TestWeb3 < Minitest::Test
 
         assert group[0].to_i > 0
         assert time2/time1 < 3
+
+        SmartBook::Web3.destroy_provider
+
+    end
+
+    def test_transaction
+        init 
+
+        rpc_node = "wss://eth.llamarpc.com"
+        SmartBook::Web3.init_provider(rpc_node)
+        SmartBook::Etherscan.api_key(ENV["ETHERSCAN_API_KEY"])
+
+        tx = SmartBook::Etherscan.getAddressTx("0xdAC17F958D2ee523a2206206994597C13D831ec7").wait_value
+
+        parse = SmartBook::Web3.parseTxs(tx[0]["hash"])
+
+        assert parse.type == "contract_creation"
+        assert parse.method_name == "[contract_creation]"
+        assert parse.status == "success"
+        assert parse.to == nil
+
+        parse = SmartBook::Web3.parseTxs(tx[1]["hash"])
+
+        assert parse.type == "method_call"
+        assert parse.method_name == "transferOwnership(address)"
+        assert parse.status == "failure"
+        assert parse.to == "0xdAC17F958D2ee523a2206206994597C13D831ec7"
+
+        SmartBook::Web3.destroy_provider
+    end
+
+    def test_lazyexec
+        init
+
+        rpc_node = "wss://eth.llamarpc.com"
+        SmartBook::Web3.init_provider(rpc_node)
+        SmartBook::Etherscan.api_key(ENV["ETHERSCAN_API_KEY"])
+        hash = "0x2f1c5c2b44f771e942a8506148e256f94f1a464babc938ae0690c6e34cd79190"
+
+
+        10.times do
+            init
+
+            tx_internal, tx, receipt = SmartBook::LazyExec.wait_value(
+                [SmartBook::Etherscan.getTxInternal(hash),
+                SmartBook::Web3.getTransaction(hash),
+                SmartBook::Web3.getTransactionReceipt(hash)])
+
+            init
+
+            assert tx_internal.to_a.size == SmartBook::Etherscan.getTxInternal(hash).wait_value.to_a.size
+            assert tx.to_a.size == SmartBook::Web3.getTransaction(hash).wait_value.to_a.size
+            assert receipt.to_a.size == SmartBook::Web3.getTransactionReceipt(hash).wait_value.to_a.size
+        end
+    end
+
+    def test_digest
+        init 
+
+        assert SmartBook::Contract.search_digest("0x00f714ce")[0] == "withdraw(uint256,address)"
+        assert SmartBook::Contract.search_digest("0x2fb985eb745b9e89bb1ab82e0f8ceb6bf94d4d60aed7e8196540c50161a5fe91")[0] == "CompoundFees(uint256,uint256)"
+
+        assert SmartBook::Contract.search_digest("0x0000")[0] == "digest not found"
+        assert SmartBook::Contract.search_digest("0x000000ff")[0] == "digest not found"
+        assert SmartBook::Contract.search_digest("0x0000000000000000000000000000000000000000000000000000000000000000")[0] == "digest not found"
+    end
+
+    def test_cache
+        init 
+
+        SmartBook::Etherscan.api_key(ENV["ETHERSCAN_API_KEY"])
+
+        rpc_node = "wss://eth-mainnet.public.blastapi.io"
+        SmartBook::Web3.init_provider(rpc_node)
+
+        hash = "0xac8f412e95395a2417b0ccfb0453b73a261c9f087edaafbdc42426659ad9088a"
+
+        time1 = Time.now
+        SmartBook::Web3.parseTxs(hash)
+        time1 = Time.now-time1
+
+        time2 = Time.now
+        SmartBook::Web3.parseTxs(hash)
+        time2 = Time.now-time2
+
+        assert time1 > time2*10
 
         SmartBook::Web3.destroy_provider
 

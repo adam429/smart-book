@@ -1,3 +1,4 @@
+require 'timeout'
 require 'jscall'
 
 module Jscall
@@ -8,10 +9,25 @@ module Jscall
     end
 
     class PipeToJsWithSemaphore < PipeToJs
+        def pipe
+            return @pipe
+        end
+        
         def send_command(cmd)
             Jscall.semaphore.synchronize do
                 super(cmd)
             end
+        end
+
+        def close
+            begin
+                Timeout.timeout(5) do
+                    @pipe.close 
+                end
+            rescue Timeout::Error
+                Process.kill 9, @pipe.pid
+            end                
+            true
         end
     end
 
