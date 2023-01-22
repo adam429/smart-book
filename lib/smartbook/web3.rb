@@ -340,16 +340,18 @@ module SmartBook
             if ret[:event] then
                 params = ret[:event].gsub(/\)$/,"").gsub(/^[^\(]+\(/,"").split(",")
 
-                params.each_with_index do |param_type,i|
-                    _, indexed = args_name[i].split(":")
-                    if indexed then
-                        param_data = topics[topics_cp].gsub(/^0x/,"")
-                        topics_cp += 1
-                    else
-                        param_data = data[data_cp,64]
-                        data_cp += 64
+                if args_name!=[] then
+                    params.each_with_index do |param_type,i|
+                        _, indexed = args_name[i].split(":")
+                        if indexed then
+                            param_data = topics[topics_cp].gsub(/^0x/,"")
+                            topics_cp += 1
+                        else
+                            param_data = data[data_cp,64]
+                            data_cp += 64
+                        end
+                        ret[:event_args].push([param_type,args_name[i],_decode_value(param_type,param_data)])
                     end
-                    ret[:event_args].push([param_type,args_name[i],_decode_value(param_type,param_data)])
                 end
             end
 
@@ -555,7 +557,7 @@ module SmartBook
     end
 
     class Transaction
-        attr_reader :parse, :tx_internal, :tx, :receipt
+        attr_reader :parse, :tx, :receipt
 
         def method_missing(name, *args)
             if @parse.has_key?(name.to_sym) then
@@ -572,10 +574,11 @@ module SmartBook
         def initialize(hash)
             @parse = {}
         
-            @tx_internal, @tx, @receipt = LazyExec.wait_value(
-                [Etherscan.getTxInternal(hash),
-                Web3.getTransaction(hash),
+
+            @tx, @receipt = LazyExec.wait_value(
+                [Web3.getTransaction(hash),
                 Web3.getTransactionReceipt(hash)])
+
 
             @parse[:blockNumber] = @tx["blockNumber"]
             @block = Web3.getBlock(@parse[:blockNumber]).wait_value
